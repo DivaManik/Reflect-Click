@@ -1,54 +1,65 @@
-'use client'
+'use client';
 
-import { useReadContract } from 'wagmi'
-import { REFLEX_ABI, REFLEX_CONTRACT_ADDRESS } from '@/constants/abi'
-import { Match, MatchState } from '@/types'
+import { useReadContract } from 'wagmi';
+import { REFLEX_ABI } from '@/constants/abi';
+import { MatchState, type MatchFull } from '@/types';
 
-export function useMatch(matchId: bigint | null) {
-  const { data: matchData, isLoading, refetch: refetchMatch } = useReadContract({
-    address: REFLEX_CONTRACT_ADDRESS,
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+
+export function useMatch(matchId: bigint | undefined) {
+  const { data: raw, refetch: refetchMatch } = useReadContract({
+    address: CONTRACT_ADDRESS,
     abi: REFLEX_ABI,
     functionName: 'matches',
-    args: matchId != null ? [matchId] : undefined,
+    args: matchId !== undefined ? [matchId] : undefined,
     query: {
-      enabled: matchId != null,
-      refetchInterval: 1000,
+      enabled: matchId !== undefined,
+      refetchInterval: 800,
     },
-  })
+  });
 
   const { data: players, refetch: refetchPlayers } = useReadContract({
-    address: REFLEX_CONTRACT_ADDRESS,
+    address: CONTRACT_ADDRESS,
     abi: REFLEX_ABI,
     functionName: 'getMatchPlayers',
-    args: matchId != null ? [matchId] : undefined,
+    args: matchId !== undefined ? [matchId] : undefined,
     query: {
-      enabled: matchId != null,
-      refetchInterval: 1000,
+      enabled: matchId !== undefined,
+      refetchInterval: 800,
     },
-  })
+  });
 
-  const match: Match | null =
-    matchData && players
+  const match: MatchFull | undefined =
+    raw && matchId !== undefined
       ? {
-          host: matchData[0],
-          stakePerPlayer: matchData[1],
-          maxPlayers: matchData[2],
-          goTimestampMs: matchData[3],
-          settleDeadlineMs: matchData[4],
-          winner: matchData[5],
-          winnerReactionMs: matchData[6],
-          tappedCount: matchData[7],
-          state: matchData[8] as MatchState,
-          players: [...players] as `0x${string}`[],
+          matchId,
+          host: raw[0],
+          stakePerPlayer: raw[1],
+          maxPlayers: Number(raw[2]),
+          goTimestampMs: raw[3],
+          settleDeadlineMs: raw[4],
+          winner: raw[5],
+          winnerReactionMs: raw[6],
+          tappedCount: Number(raw[7]),
+          state: raw[8] as MatchState,
+          players: (players as `0x${string}`[]) ?? [],
         }
-      : null
+      : undefined;
 
-  return {
-    match,
-    isLoading,
-    refetch: () => {
-      refetchMatch()
-      refetchPlayers()
-    },
+  function refetch() {
+    refetchMatch();
+    refetchPlayers();
   }
+
+  return { match, refetch };
+}
+
+export function useMatchCounter() {
+  const { data } = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: REFLEX_ABI,
+    functionName: 'matchCounter',
+    query: { refetchInterval: 3000 },
+  });
+  return data as bigint | undefined;
 }

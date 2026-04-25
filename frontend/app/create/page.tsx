@@ -1,141 +1,204 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
-import { parseEther, parseEventLogs } from 'viem'
-import { waitForTransactionReceipt } from 'wagmi/actions'
-import { wagmiConfig } from '@/lib/wagmiConfig'
-import { REFLEX_ABI, REFLEX_CONTRACT_ADDRESS } from '@/constants/abi'
+import { useState } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
+import { useWriteContract } from 'wagmi';
+import { parseEventLogs, parseEther } from 'viem';
+import { waitForTransactionReceipt } from 'wagmi/actions';
+import { REFLEX_ABI } from '@/constants/abi';
+import { Header } from '@/components/Header';
+import { ArrowLeft, Users, Coins, Minus, Plus } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { wagmiConfig } from '@/lib/wagmiConfig';
+import clsx from 'clsx';
+
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+
+const STAKE_OPTIONS = [
+  { label: '0.001', display: '0.001 MON' },
+  { label: '0.01', display: '0.01 MON' },
+  { label: '0.1', display: '0.1 MON' },
+];
+
+function Spinner() {
+  return (
+    <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
 
 export default function CreatePage() {
-  const router = useRouter()
-  const [maxPlayers, setMaxPlayers] = useState(4)
-  const [stake, setStake] = useState('0.01')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const { authenticated, login } = usePrivy();
+  const router = useRouter();
+  const { writeContractAsync } = useWriteContract();
 
-  const { writeContractAsync } = useWriteContract()
+  const [stakeOption, setStakeOption] = useState('0.01');
+  const [maxPlayers, setMaxPlayers] = useState(4);
+  const [isPending, setIsPending] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const totalPot = (parseFloat(stake) * maxPlayers).toFixed(4)
+  const totalPot = Number(stakeOption) * maxPlayers;
+  const totalPotDisplay =
+    totalPot % 1 === 0 ? totalPot.toFixed(0) : totalPot.toFixed(3);
 
   async function handleCreate() {
-    setError('')
-    let parsedStake: bigint
-    try {
-      parsedStake = parseEther(stake)
-    } catch {
-      setError('Invalid stake amount')
-      return
+    if (!authenticated) {
+      login();
+      return;
     }
 
-    setLoading(true)
+    setIsPending(true);
+    setErrorMsg('');
+
     try {
-      const txHash = await writeContractAsync({
-        address: REFLEX_CONTRACT_ADDRESS,
+      const hash = await writeContractAsync({
+        address: CONTRACT_ADDRESS,
         abi: REFLEX_ABI,
         functionName: 'createMatch',
         args: [maxPlayers],
-        value: parsedStake,
-      })
+        value: parseEther(stakeOption),
+      });
 
-      // Decode MatchCreated event to get the new matchId
-      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash: txHash })
+      const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+
       const logs = parseEventLogs({
         abi: REFLEX_ABI,
         eventName: 'MatchCreated',
         logs: receipt.logs,
-      })
+      });
 
-      if (logs[0]?.args.matchId != null) {
-        router.push(`/match/${logs[0].args.matchId}`)
+      const matchId = logs[0]?.args?.matchId;
+      if (matchId !== undefined) {
+        router.push(`/match/${matchId}`);
+      } else {
+        throw new Error('Could not parse match ID from transaction');
       }
-    } catch (err) {
-      setError((err as Error).shortMessage ?? (err as Error).message)
-      setLoading(false)
+    } catch (err: unknown) {
+      const e = err as { shortMessage?: string; message?: string };
+      setErrorMsg(e.shortMessage ?? e.message ?? 'Transaction failed');
+      setIsPending(false);
     }
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-6 py-12">
-      <div className="w-full max-w-md space-y-6">
-        <div>
-          <button
-            onClick={() => router.back()}
-            className="text-neutral-600 hover:text-neutral-400 text-sm mb-6 transition-colors"
-          >
-            ← Back
-          </button>
-          <h1 className="text-4xl font-black text-white">Create Match</h1>
+    <div className="flex min-h-[100dvh] flex-col bg-bg">
+      <Header />
+
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-4 py-6">
+        <Link
+          href="/"
+          className="flex w-fit items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text-secondary"
+        >
+          <ArrowLeft size={16} />
+          Back
+        </Link>
+
+        <h1 className="text-2xl font-black text-text-primary">New Match</h1>
+
+        {/* Stake */}
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted">
+            <Coins size={13} />
+            Stake per player
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {STAKE_OPTIONS.map((opt) => (
+              <button
+                key={opt.label}
+                onClick={() => setStakeOption(opt.label)}
+                className={clsx(
+                  'rounded-xl border py-3.5 text-sm font-bold transition-all active:scale-95',
+                  stakeOption === opt.label
+                    ? 'border-primary bg-primary/20 text-primary shadow-sm shadow-primary/20'
+                    : 'border-white/[0.08] bg-surface text-text-secondary hover:border-white/[0.16] hover:text-text-primary'
+                )}
+              >
+                {opt.display}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Max Players */}
+        {/* Max players */}
         <div className="space-y-3">
-          <label className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
-            Max Players (2–20)
+          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted">
+            <Users size={13} />
+            Max players
           </label>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-surface px-4 py-3">
             <button
-              onClick={() => setMaxPlayers((p) => Math.max(2, p - 1))}
-              className="w-12 h-12 rounded-full bg-neutral-900 border border-neutral-800 text-white text-2xl font-light hover:border-neutral-600 transition-colors"
+              onClick={() => setMaxPlayers((v) => Math.max(2, v - 1))}
+              disabled={maxPlayers <= 2}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] text-text-secondary transition-colors hover:border-white/[0.16] hover:text-text-primary disabled:opacity-30"
             >
-              −
+              <Minus size={16} />
             </button>
-            <span className="text-5xl font-black text-white w-16 text-center">{maxPlayers}</span>
+
+            <div className="text-center">
+              <span className="text-4xl font-black text-text-primary">{maxPlayers}</span>
+              <p className="text-xs text-text-muted">players max</p>
+            </div>
+
             <button
-              onClick={() => setMaxPlayers((p) => Math.min(20, p + 1))}
-              className="w-12 h-12 rounded-full bg-neutral-900 border border-neutral-800 text-white text-2xl font-light hover:border-neutral-600 transition-colors"
+              onClick={() => setMaxPlayers((v) => Math.min(20, v + 1))}
+              disabled={maxPlayers >= 20}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] text-text-secondary transition-colors hover:border-white/[0.16] hover:text-text-primary disabled:opacity-30"
             >
-              +
+              <Plus size={16} />
             </button>
           </div>
         </div>
 
-        {/* Stake */}
-        <div className="space-y-2">
-          <label className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
-            Stake per Player (MON)
-          </label>
-          <input
-            type="number"
-            min="0.001"
-            step="0.001"
-            value={stake}
-            onChange={(e) => setStake(e.target.value)}
-            className="w-full bg-neutral-900 text-white text-xl rounded-xl px-4 py-4 outline-none border border-neutral-800 focus:border-monad transition-colors"
-          />
-          <p className="text-neutral-600 text-sm">
-            Total pot when full: <span className="text-neutral-400 font-semibold">{totalPot} MON</span>
+        {/* Prize preview */}
+        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-5">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-primary/60">
+            Match preview
           </p>
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-sm text-text-secondary">Winner takes</p>
+              <p className="text-4xl font-black text-text-primary">
+                {totalPotDisplay}
+                <span className="ml-1.5 text-xl font-bold text-text-secondary">MON</span>
+              </p>
+            </div>
+            <div className="text-right text-sm text-text-muted">
+              <p>{maxPlayers} players</p>
+              <p>{stakeOption} each</p>
+            </div>
+          </div>
         </div>
 
-        {/* Info */}
-        <div className="bg-neutral-900 border border-monad/30 rounded-xl p-4">
-          <p className="text-neutral-400 text-sm leading-relaxed">
-            You are the host. After creating, share the match link with players. Lock the lobby and
-            start the countdown when ready.
+        {/* Error */}
+        {errorMsg && (
+          <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {errorMsg}
           </p>
-        </div>
-
-        {error && (
-          <p className="text-red-400 text-sm bg-red-950/30 rounded-xl px-4 py-3">{error}</p>
         )}
 
+        {/* Create */}
         <button
           onClick={handleCreate}
-          disabled={loading}
-          className="w-full bg-monad hover:bg-purple-700 disabled:opacity-50 text-white font-bold py-5 rounded-2xl text-lg transition-colors"
+          disabled={isPending}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-lg font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary-dim disabled:opacity-60 active:scale-[0.98]"
         >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Creating…
-            </span>
+          {isPending ? (
+            <>
+              <Spinner />
+              Creating match…
+            </>
           ) : (
-            'Create & Enter Lobby'
+            'Create Match'
           )}
         </button>
-      </div>
+
+        <p className="text-center text-xs text-text-muted">
+          You stake {stakeOption} MON now · Winner-takes-all · Instant payout on Monad
+        </p>
+      </main>
     </div>
-  )
+  );
 }

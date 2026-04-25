@@ -1,12 +1,11 @@
-import { createConfig, http } from 'wagmi'
-import { privy } from '@privy-io/wagmi'
-import { monadTestnet } from '@/constants/chain'
+import { createConfig, http } from '@privy-io/wagmi';
+import { monadTestnet } from '@/constants/chain';
 
 export const wagmiConfig = createConfig({
   chains: [monadTestnet],
-  connectors: [privy()],
   transports: {
-    [monadTestnet.id]: http('https://testnet-rpc.monad.xyz'),
+    [monadTestnet.id]: http(
+      process.env.NEXT_PUBLIC_RPC_URL || 'https://testnet-rpc.monad.xyz'
+    ),
   },
-  pollingInterval: 200,
-})
+});

@@ -1,18 +1,26 @@
-import type { Metadata } from 'next'
-import { Providers } from '@/lib/providers'
-import './globals.css'
+import type { Metadata, Viewport } from 'next';
+import './globals.css';
+import { Providers } from '@/lib/providers';
 
 export const metadata: Metadata = {
-  title: 'Reflex — Monad',
-  description: 'Fastest tap wins the pot. Multi-player reaction-time wagering on Monad.',
-}
+  title: 'Reflex — Reaction-Time Wagering on Monad',
+  description: 'Fastest tap wins the pot. Multi-player reaction-time game on Monad.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#0b0b12',
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-[#0f0f0f] text-white antialiased">
+    <html lang="en" suppressHydrationWarning>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>
-  )
+  );
 }
