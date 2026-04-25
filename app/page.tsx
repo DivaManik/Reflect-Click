@@ -1,91 +1,116 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { usePrivy } from '@privy-io/react-auth'
-import { useAccount } from 'wagmi'
+import { usePrivy } from '@privy-io/react-auth';
+import { Header } from '@/components/Header';
+import { useMatchCounter } from '@/hooks/useMatch';
+import { Plus, ArrowRight, Zap } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 export default function HomePage() {
-  const router = useRouter()
-  const { ready, authenticated, login, logout } = usePrivy()
-  const { address } = useAccount()
-  const [matchId, setMatchId] = useState('')
+  const { authenticated, login } = usePrivy();
+  const counter = useMatchCounter();
+  const router = useRouter();
+  const [joinId, setJoinId] = useState('');
 
-  if (!ready) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-8 h-8 border-2 border-monad border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  if (!authenticated) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6">
-        <h1 className="text-8xl font-black tracking-[0.2em] text-white">REFLEX</h1>
-        <p className="text-neutral-500 text-lg">Fastest tap wins the pot</p>
-        <p className="text-neutral-600 text-sm text-center max-w-xs">
-          Multi-player reaction-time wagering on Monad. Stake MON, tap fastest, win the pot.
-        </p>
-        <button
-          onClick={login}
-          className="mt-4 bg-monad hover:bg-purple-700 text-white font-bold py-4 px-12 rounded-2xl text-lg transition-colors"
-        >
-          Connect Wallet
-        </button>
-      </div>
-    )
+  function handleJoin() {
+    const id = joinId.trim();
+    if (id) router.push(`/match/${id}`);
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-5 px-6 py-12">
-      <h1 className="text-8xl font-black tracking-[0.2em] text-white">REFLEX</h1>
-      <p className="text-neutral-500 text-lg mb-2">Fastest tap wins the pot</p>
+    <div className="flex min-h-[100dvh] flex-col bg-bg">
+      <Header />
 
-      {/* Wallet info */}
-      {address && (
-        <div className="w-full max-w-md bg-neutral-900 rounded-2xl p-4 space-y-1">
-          <p className="text-xs text-neutral-600 uppercase tracking-widest">Wallet</p>
-          <p className="font-mono text-sm text-neutral-300 break-all">{address}</p>
-          <p className="text-xs text-neutral-700 mt-1">
-            Ensure this address has MON to cover stakes. Gas is free via Monad.
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-4 py-10">
+        {/* Hero */}
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-primary/20">
+            <Zap size={36} className="text-primary" strokeWidth={2.5} />
+          </div>
+          <h1 className="text-5xl font-black tracking-tight text-text-primary">Reflex</h1>
+          <p className="max-w-xs text-base leading-relaxed text-text-secondary">
+            Fastest tap wins the pot.
+            <br />
+            Real money. Monad speed.
           </p>
         </div>
-      )}
 
-      {/* Create match */}
-      <button
-        onClick={() => router.push('/create')}
-        className="w-full max-w-md bg-monad hover:bg-purple-700 text-white font-bold py-5 rounded-2xl text-lg transition-colors"
-      >
-        Create Match
-      </button>
+        {/* Matches played */}
+        {counter !== undefined && counter > 0n && (
+          <div className="flex items-center justify-center gap-2 rounded-2xl border border-white/[0.06] bg-surface py-3">
+            <span className="text-2xl font-black text-text-primary">{counter.toString()}</span>
+            <span className="text-sm text-text-muted">matches played</span>
+          </div>
+        )}
 
-      {/* Join match */}
-      <div className="flex gap-3 w-full max-w-md">
-        <input
-          type="number"
-          min={1}
-          placeholder="Match ID"
-          value={matchId}
-          onChange={(e) => setMatchId(e.target.value)}
-          className="flex-1 bg-neutral-900 text-white rounded-xl px-4 py-4 text-lg outline-none border border-neutral-800 focus:border-monad transition-colors"
-        />
-        <button
-          disabled={!matchId}
-          onClick={() => router.push(`/match/${matchId}`)}
-          className="bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-white font-bold py-4 px-6 rounded-xl transition-colors"
-        >
-          Join
-        </button>
-      </div>
+        {/* Primary CTA */}
+        {authenticated ? (
+          <Link
+            href="/create"
+            className="flex items-center justify-center gap-3 rounded-2xl bg-primary px-6 py-4 text-lg font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary-dim active:scale-[0.98]"
+          >
+            <Plus size={22} strokeWidth={2.5} />
+            Create Match
+          </Link>
+        ) : (
+          <button
+            onClick={login}
+            className="flex items-center justify-center gap-3 rounded-2xl bg-primary px-6 py-4 text-lg font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary-dim active:scale-[0.98]"
+          >
+            Connect to Play
+          </button>
+        )}
 
-      <button
-        onClick={logout}
-        className="text-neutral-700 hover:text-neutral-500 text-sm transition-colors mt-4"
-      >
-        Logout
-      </button>
+        {/* Join by ID */}
+        <div className="space-y-3">
+          <p className="text-center text-xs font-semibold uppercase tracking-widest text-text-muted">
+            or join with a match ID
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="Match ID"
+              value={joinId}
+              onChange={(e) => setJoinId(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+              className="flex-1 rounded-xl border border-white/[0.08] bg-surface px-4 py-3 text-sm text-text-primary placeholder-text-muted outline-none transition-colors focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+            />
+            <button
+              onClick={handleJoin}
+              disabled={!joinId.trim()}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-raised text-text-secondary transition-colors hover:text-text-primary disabled:opacity-30 active:scale-95"
+            >
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* How it works */}
+        <div className="rounded-2xl border border-white/[0.06] bg-surface p-5">
+          <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-text-muted">
+            How it works
+          </p>
+          <div className="space-y-4">
+            {[
+              ['Stake MON', 'Host creates a match and sets the buy-in amount'],
+              ['Wait for GO', 'Random countdown 1–5 sec — no one knows when'],
+              ['Tap fastest', 'First valid tap after GO wins the entire pot'],
+              ['Instant payout', 'Winner gets MON in under 1 second on Monad'],
+            ].map(([title, desc]) => (
+              <div key={title} className="flex gap-3">
+                <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary/60" />
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">{title}</p>
+                  <p className="text-xs leading-relaxed text-text-muted">{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
     </div>
-  )
+  );
 }

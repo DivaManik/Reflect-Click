@@ -1,5 +1,5 @@
 export const REFLEX_ABI = [
-  // ── Events ────────────────────────────────────────────────────────────────
+  // ── Events ──────────────────────────────────────────────────────────────
   {
     type: 'event',
     name: 'MatchCreated',
@@ -47,7 +47,7 @@ export const REFLEX_ABI = [
       { name: 'pot', type: 'uint256', indexed: false },
     ],
   },
-  // ── Write ─────────────────────────────────────────────────────────────────
+  // ── Write Functions ──────────────────────────────────────────────────────
   {
     type: 'function',
     name: 'createMatch',
@@ -93,13 +93,13 @@ export const REFLEX_ABI = [
     inputs: [{ name: 'matchId', type: 'uint256' }],
     outputs: [],
   },
-  // ── Read ──────────────────────────────────────────────────────────────────
+  // ── Read Functions ───────────────────────────────────────────────────────
   {
     type: 'function',
     name: 'matches',
     stateMutability: 'view',
     inputs: [{ name: '', type: 'uint256' }],
-    // players[] excluded from auto-getter — use getMatchPlayers()
+    // Returns struct fields excluding the dynamic `players[]` array
     outputs: [
       { name: 'host', type: 'address' },
       { name: 'stakePerPlayer', type: 'uint256' },
@@ -131,13 +131,16 @@ export const REFLEX_ABI = [
   },
   {
     type: 'function',
+    name: 'bestReactionMs',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'matchCounter',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
-] as const
-
-export const REFLEX_CONTRACT_ADDRESS =
-  (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`) ??
-  '0x0000000000000000000000000000000000000000'
+] as const;

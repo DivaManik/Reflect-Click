@@ -1,77 +1,81 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useWatchContractEvent } from 'wagmi'
-import { REFLEX_ABI, REFLEX_CONTRACT_ADDRESS } from '@/constants/abi'
-import { TapResult } from '@/types'
+import { useWatchContractEvent } from 'wagmi';
+import { REFLEX_ABI } from '@/constants/abi';
+import type { TapResult } from '@/types';
 
-export function useMatchEvents(matchId: bigint | null) {
-  const [goTimestampMs, setGoTimestampMs] = useState<bigint | null>(null)
-  const [tapResults, setTapResults] = useState<TapResult[]>([])
-  const [finishedData, setFinishedData] = useState<{
-    winner: `0x${string}`
-    reactionMs: bigint
-    pot: bigint
-  } | null>(null)
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
 
-  // MatchStarted — all clients use this goTimestampMs as the shared baseline
+interface UseMatchEventsParams {
+  matchId: bigint;
+  onMatchStarted?: (goTimestampMs: bigint) => void;
+  onTapSubmitted?: (result: TapResult) => void;
+  onMatchFinished?: (winner: `0x${string}`, reactionMs: bigint, pot: bigint) => void;
+  onMatchJoined?: () => void;
+}
+
+export function useMatchEvents({
+  matchId,
+  onMatchStarted,
+  onTapSubmitted,
+  onMatchFinished,
+  onMatchJoined,
+}: UseMatchEventsParams) {
   useWatchContractEvent({
-    address: REFLEX_CONTRACT_ADDRESS,
+    address: CONTRACT_ADDRESS,
     abi: REFLEX_ABI,
     eventName: 'MatchStarted',
+    args: { matchId },
+    pollingInterval: 200,
     onLogs(logs) {
       for (const log of logs) {
-        if (log.args.matchId === matchId && log.args.goTimestampMs != null) {
-          setGoTimestampMs(log.args.goTimestampMs)
-        }
+        const args = log.args as { matchId: bigint; goTimestampMs: bigint; totalPlayers: number };
+        onMatchStarted?.(args.goTimestampMs);
       }
     },
-    enabled: matchId != null,
-  })
+  });
 
-  // TapSubmitted — build live leaderboard sorted fastest → slowest
   useWatchContractEvent({
-    address: REFLEX_CONTRACT_ADDRESS,
+    address: CONTRACT_ADDRESS,
     abi: REFLEX_ABI,
     eventName: 'TapSubmitted',
-    onLogs(logs) {
-      setTapResults((prev) => {
-        const updated = [...prev]
-        for (const log of logs) {
-          if (log.args.matchId !== matchId) continue
-          if (!log.args.player || log.args.reactionMs == null) continue
-          const already = updated.find((r) => r.player === log.args.player)
-          if (!already) {
-            updated.push({
-              player: log.args.player as `0x${string}`,
-              reactionMs: log.args.reactionMs as bigint,
-            })
-          }
-        }
-        return updated.sort((a, b) => Number(a.reactionMs - b.reactionMs))
-      })
-    },
-    enabled: matchId != null,
-  })
-
-  // MatchFinished — winner + payout
-  useWatchContractEvent({
-    address: REFLEX_CONTRACT_ADDRESS,
-    abi: REFLEX_ABI,
-    eventName: 'MatchFinished',
+    args: { matchId },
+    pollingInterval: 200,
     onLogs(logs) {
       for (const log of logs) {
-        if (log.args.matchId !== matchId) continue
-        if (!log.args.winner || log.args.reactionMs == null || log.args.pot == null) continue
-        setFinishedData({
-          winner: log.args.winner as `0x${string}`,
-          reactionMs: log.args.reactionMs as bigint,
-          pot: log.args.pot as bigint,
-        })
+        const args = log.args as { matchId: bigint; player: `0x${string}`; reactionMs: bigint };
+        onTapSubmitted?.({ player: args.player, reactionMs: args.reactionMs });
       }
     },
-    enabled: matchId != null,
-  })
+  });
 
-  return { goTimestampMs, tapResults, finishedData }
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESS,
+    abi: REFLEX_ABI,
+    eventName: 'MatchFinished',
+    args: { matchId },
+    pollingInterval: 200,
+    onLogs(logs) {
+      for (const log of logs) {
+        const args = log.args as {
+          matchId: bigint;
+          winner: `0x${string}`;
+          reactionMs: bigint;
+          pot: bigint;
+        };
+        onMatchFinished?.(args.winner, args.reactionMs, args.pot);
+      }
+    },
+  });
+
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESS,
+    abi: REFLEX_ABI,
+    eventName: 'MatchJoined',
+    args: { matchId },
+    pollingInterval: 500,
+    onLogs() {
+      onMatchJoined?.();
+    },
+  });
 }

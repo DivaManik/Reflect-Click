@@ -1,47 +1,93 @@
-'use client'
+'use client';
 
-interface Props {
-  players: `0x${string}`[]
-  maxPlayers: number
-  currentAddress?: `0x${string}`
-  host: `0x${string}`
+import { Crown, User } from 'lucide-react';
+import clsx from 'clsx';
+
+interface PlayerListProps {
+  players: `0x${string}`[];
+  maxPlayers: number;
+  host: `0x${string}`;
+  currentUser?: `0x${string}`;
+  tappedPlayers?: Set<string>;
 }
 
 function shortAddr(addr: string) {
-  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-export function PlayerList({ players, maxPlayers, currentAddress, host }: Props) {
+export function PlayerList({
+  players,
+  maxPlayers,
+  host,
+  currentUser,
+  tappedPlayers = new Set(),
+}: PlayerListProps) {
+  const emptySlots = Math.max(0, maxPlayers - players.length);
+
   return (
-    <div className="w-full bg-neutral-900 rounded-2xl p-4 space-y-2">
-      <p className="text-xs text-neutral-500 uppercase tracking-widest font-semibold">
-        Players — {players.length}/{maxPlayers}
-      </p>
+    <div className="space-y-2">
+      {players.map((addr) => {
+        const isHost = addr.toLowerCase() === host.toLowerCase();
+        const isYou = currentUser && addr.toLowerCase() === currentUser.toLowerCase();
+        const hasTapped = tappedPlayers.has(addr.toLowerCase());
 
-      {players.map((addr, i) => (
-        <div key={addr} className="flex items-center gap-3 py-1">
-          <span className="text-neutral-600 text-sm w-7">#{i + 1}</span>
-          <span
-            className={`font-mono text-sm flex-1 ${
-              addr.toLowerCase() === currentAddress?.toLowerCase()
-                ? 'text-monad font-bold'
-                : 'text-neutral-300'
-            }`}
+        return (
+          <div
+            key={addr}
+            className={clsx(
+              'flex items-center gap-3 rounded-xl border px-4 py-3',
+              isYou
+                ? 'border-primary/40 bg-primary/10'
+                : 'border-white/[0.06] bg-surface'
+            )}
           >
-            {shortAddr(addr)}
-            {addr.toLowerCase() === currentAddress?.toLowerCase() ? ' (you)' : ''}
-            {addr.toLowerCase() === host.toLowerCase() ? ' 👑' : ''}
-          </span>
-        </div>
-      ))}
+            <div
+              className={clsx(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                isHost ? 'bg-yellow-500/20' : 'bg-white/[0.06]'
+              )}
+            >
+              {isHost ? (
+                <Crown size={14} className="text-yellow-400" />
+              ) : (
+                <User size={14} className="text-text-muted" />
+              )}
+            </div>
 
-      {/* Empty slots */}
-      {Array.from({ length: maxPlayers - players.length }).map((_, i) => (
-        <div key={`empty-${i}`} className="flex items-center gap-3 py-1">
-          <span className="text-neutral-700 text-sm w-7">#{players.length + i + 1}</span>
-          <span className="text-neutral-700 text-sm italic">waiting…</span>
+            <div className="flex flex-1 flex-col">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-medium text-text-primary">
+                  {shortAddr(addr)}
+                </span>
+                {isYou && (
+                  <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs font-semibold text-primary">
+                    You
+                  </span>
+                )}
+                {isHost && (
+                  <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs font-semibold text-yellow-400">
+                    Host
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {hasTapped && (
+              <div className="h-2 w-2 rounded-full bg-tap" />
+            )}
+          </div>
+        );
+      })}
+
+      {Array.from({ length: emptySlots }).map((_, i) => (
+        <div
+          key={`empty-${i}`}
+          className="flex items-center gap-3 rounded-xl border border-dashed border-white/[0.06] px-4 py-3"
+        >
+          <div className="h-8 w-8 rounded-lg border border-dashed border-white/[0.08]" />
+          <span className="text-sm text-text-muted">Waiting for player…</span>
         </div>
       ))}
     </div>
-  )
+  );
 }

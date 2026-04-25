@@ -1,6 +1,6 @@
 {
-  "name": "reflex-web",
-  "version": "1.0.0",
+  "name": "reflex-frontend",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,22 +9,27 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@privy-io/react-auth": "^1.88.0",
-    "@privy-io/wagmi": "^0.2.4",
-    "@tanstack/react-query": "^5.56.2",
     "next": "14.2.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "viem": "^2.21.54",
-    "wagmi": "^2.12.21"
+    "react": "^18",
+    "react-dom": "^18",
+    "@privy-io/react-auth": "^1.87.2",
+    "@privy-io/wagmi": "^0.2.3",
+    "wagmi": "^2.12.7",
+    "viem": "^2.21.0",
+    "@tanstack/react-query": "^5.56.2",
+    "lucide-react": "^0.454.0",
+    "qrcode.react": "^4.0.1",
+    "clsx": "^2.1.1"
   },
   "devDependencies": {
+    "typescript": "^5",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "tailwindcss": "^3.4.14",
     "autoprefixer": "^10.4.20",
     "postcss": "^8",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "eslint": "^8",
+    "eslint-config-next": "14.2.5"
   }
 }

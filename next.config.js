@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@privy-io/react-auth'],
-}
+  reactStrictMode: true,
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
