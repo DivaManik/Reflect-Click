@@ -2,19 +2,19 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { usePrivy } from '@privy-io/react-auth';
-import { useAccount, useWriteContract } from 'wagmi';
+import { useAccount, useConnect, useWriteContract } from 'wagmi';
+import { injected } from 'wagmi/connectors';
 import { waitForTransactionReceipt } from 'wagmi/actions';
-import { parseEther, formatEther } from 'viem';
+import { formatEther } from 'viem';
 import clsx from 'clsx';
-import { ArrowLeft, Users, Lock, Play, Zap, Clock, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Users, Play, Zap, Clock, AlertCircle, StopCircle, TimerReset } from 'lucide-react';
 import Link from 'next/link';
 
-import { useMatch } from '@/hooks/useMatch';
+import { useMatch, useIsPlayer, isValidMatch } from '@/hooks/useMatch';
 import { useMatchEvents } from '@/hooks/useMatchEvents';
 import { REFLEX_ABI } from '@/constants/abi';
 import { wagmiConfig } from '@/lib/wagmiConfig';
-import { MatchState, type TapResult } from '@/types';
+import { MatchState, type TapResult, type FinishedData } from '@/types';
 import { Header } from '@/components/Header';
 import { PlayerList } from '@/components/PlayerList';
 import { Leaderboard } from '@/components/Leaderboard';
@@ -22,9 +22,9 @@ import { QRShare } from '@/components/QRShare';
 import { TapButton } from '@/components/TapButton';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
+const FORCE_SETTLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
-type HostStartState = 'idle' | 'locking' | 'countdown' | 'starting';
+type HostFlow = 'idle' | 'locking' | 'starting';
 
 function Spinner({ className }: { className?: string }) {
   return (
@@ -42,115 +42,100 @@ function shortAddr(addr: string) {
 export default function MatchPage() {
   const params = useParams();
   const router = useRouter();
-  const { authenticated, login } = usePrivy();
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { connect } = useConnect();
   const { writeContractAsync } = useWriteContract();
 
   const matchId = BigInt(params.id as string);
   const { match, refetch } = useMatch(matchId);
+  const isPlayer = useIsPlayer(matchId);
 
-  // ── Event-driven state (reacts faster than polling) ──────────────────────
+  // ── Real-time state from events ──────────────────────────────────────────
   const [goTimestampMs, setGoTimestampMs] = useState<bigint | null>(null);
   const [tapResults, setTapResults] = useState<TapResult[]>([]);
-  const [finishedData, setFinishedData] = useState<{
-    winner: `0x${string}`;
-    reactionMs: bigint;
-    pot: bigint;
-  } | null>(null);
-
-  // ── TAP state ────────────────────────────────────────────────────────────
-  const hasTappedRef = useRef(false);
-  const [hasTapped, setHasTapped] = useState(false);
-  const [myReactionMs, setMyReactionMs] = useState<number | null>(null);
+  const [finishedData, setFinishedData] = useState<FinishedData | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const rafRef = useRef<number>();
 
-  // ── Host start-game flow ─────────────────────────────────────────────────
-  const [hostStartState, setHostStartState] = useState<HostStartState>('idle');
-  const [countdownSec, setCountdownSec] = useState(0);
+  // ── Tap state ────────────────────────────────────────────────────────────
+  const hasTappedRef = useRef(false);
+  const [hasTapped, setHasTapped] = useState(false);
+  const [myReactionMs, setMyReactionMs] = useState<number | null>(null);
 
-  // ── Tx error ─────────────────────────────────────────────────────────────
+  // ── Host flow ────────────────────────────────────────────────────────────
+  const [hostFlow, setHostFlow] = useState<HostFlow>('idle');
   const [txError, setTxError] = useState('');
 
-  // Derived values
+  // ── Force settle countdown ───────────────────────────────────────────────
+  const [forceSettleReady, setForceSettleReady] = useState(false);
+
+  // Derived
   const effectiveState: MatchState = (() => {
-    // Events take precedence over polled state for real-time feel
     if (finishedData) return MatchState.Finished;
     if (goTimestampMs !== null) return MatchState.Active;
     return match?.state ?? MatchState.Open;
   })();
 
-  const isHost =
-    address && match ? address.toLowerCase() === match.host.toLowerCase() : false;
-  const isPlayer =
-    address && match
-      ? match.players.some((p) => p.toLowerCase() === address.toLowerCase())
-      : false;
+  const isHost = address && match ? address.toLowerCase() === match.host.toLowerCase() : false;
+  const displayedGoMs = goTimestampMs ?? match?.goTimestampMs ?? 0n;
 
-  const displayedGoTimestampMs = goTimestampMs ?? match?.goTimestampMs ?? 0n;
-
-  // ── Event subscriptions ──────────────────────────────────────────────────
+  // ── Events ───────────────────────────────────────────────────────────────
   useMatchEvents({
     matchId,
-    onMatchStarted: (ts) => {
-      setGoTimestampMs(ts);
-    },
+    onMatchStarted: (ts) => setGoTimestampMs(ts),
     onTapSubmitted: (result) => {
       setTapResults((prev) => {
-        if (prev.find((r) => r.player.toLowerCase() === result.player.toLowerCase()))
-          return prev;
+        if (prev.find((r) => r.player.toLowerCase() === result.player.toLowerCase())) return prev;
         return [...prev, result];
       });
     },
-    onMatchFinished: (winner, reactionMs, pot) => {
-      setFinishedData({ winner, reactionMs, pot });
+    onMatchFinished: (data) => {
+      setFinishedData(data);
       refetch();
     },
     onMatchJoined: refetch,
+    onMatchLocked: refetch,
   });
 
-  // ── Elapsed timer during active phase ────────────────────────────────────
+  // ── Elapsed timer ────────────────────────────────────────────────────────
   useEffect(() => {
     if (effectiveState !== MatchState.Active || hasTapped) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       return;
     }
-
-    const goMs = Number(displayedGoTimestampMs);
-
+    const goMs = Number(displayedGoMs);
     function tick() {
-      setElapsedMs(Date.now() - goMs);
+      const now = Date.now();
+      setElapsedMs(now > goMs ? now - goMs : 0);
       rafRef.current = requestAnimationFrame(tick);
     }
-
     rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [effectiveState, hasTapped, displayedGoTimestampMs]);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [effectiveState, hasTapped, displayedGoMs]);
 
-  // Sync from contract state on initial load / refresh
+  // ── Restore state on refresh ─────────────────────────────────────────────
   useEffect(() => {
     if (!match) return;
-    // If refreshed mid-game, restore goTimestampMs from contract
     if (match.state === MatchState.Active && match.goTimestampMs > 0n && goTimestampMs === null) {
       setGoTimestampMs(match.goTimestampMs);
     }
-    if (match.state === MatchState.Finished && match.winner !== ZERO_ADDR) {
-      setFinishedData({
-        winner: match.winner,
-        reactionMs: match.winnerReactionMs,
-        pot: match.stakePerPlayer * BigInt(match.players.length),
-      });
-    }
-  }, [match, address]);
+  }, [match]);
+
+  // ── Force settle eligibility timer ───────────────────────────────────────
+  useEffect(() => {
+    if (!match || match.state !== MatchState.Active || match.startedAt === 0n) return;
+    const readyAt = Number(match.startedAt) * 1000 + FORCE_SETTLE_TIMEOUT_MS;
+    const remaining = readyAt - Date.now();
+    if (remaining <= 0) { setForceSettleReady(true); return; }
+    const t = setTimeout(() => setForceSettleReady(true), remaining);
+    return () => clearTimeout(t);
+  }, [match?.state, match?.startedAt]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
   async function handleJoin() {
-    if (!authenticated) { login(); return; }
+    if (!isConnected) { connect({ connector: injected() }); return; }
     if (!match) return;
     setTxError('');
-
     try {
       const hash = await writeContractAsync({
         address: CONTRACT_ADDRESS,
@@ -170,10 +155,9 @@ export default function MatchPage() {
   async function handleStartGame() {
     if (!match) return;
     setTxError('');
-
     try {
       if (match.state === MatchState.Open) {
-        setHostStartState('locking');
+        setHostFlow('locking');
         const lockHash = await writeContractAsync({
           address: CONTRACT_ADDRESS,
           abi: REFLEX_ABI,
@@ -181,24 +165,10 @@ export default function MatchPage() {
           args: [matchId],
         });
         await waitForTransactionReceipt(wagmiConfig, { hash: lockHash });
+        refetch();
       }
 
-      // Random delay 1-5 seconds — players see "GET READY" the whole time
-      const delayMs = Math.floor(Math.random() * 4000) + 1000;
-      const endAt = Date.now() + delayMs;
-      setHostStartState('countdown');
-      setCountdownSec(Math.ceil(delayMs / 1000));
-
-      const tick = setInterval(() => {
-        const remaining = Math.ceil(Math.max(0, endAt - Date.now()) / 1000);
-        setCountdownSec(remaining);
-        if (remaining <= 0) clearInterval(tick);
-      }, 200);
-
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      clearInterval(tick);
-
-      setHostStartState('starting');
+      setHostFlow('starting');
       const startHash = await writeContractAsync({
         address: CONTRACT_ADDRESS,
         abi: REFLEX_ABI,
@@ -206,21 +176,39 @@ export default function MatchPage() {
         args: [matchId],
       });
       await waitForTransactionReceipt(wagmiConfig, { hash: startHash });
-      setHostStartState('idle');
+      setHostFlow('idle');
+      refetch();
     } catch (err: unknown) {
       const e = err as { shortMessage?: string; message?: string };
       setTxError(e.shortMessage ?? e.message ?? 'Transaction failed');
-      setHostStartState('idle');
+      setHostFlow('idle');
     }
   }
 
-  async function handleSettle() {
+  async function handleEndMatch() {
     setTxError('');
     try {
       const hash = await writeContractAsync({
         address: CONTRACT_ADDRESS,
         abi: REFLEX_ABI,
-        functionName: 'settleMatch',
+        functionName: 'endMatch',
+        args: [matchId],
+      });
+      await waitForTransactionReceipt(wagmiConfig, { hash });
+      refetch();
+    } catch (err: unknown) {
+      const e = err as { shortMessage?: string; message?: string };
+      setTxError(e.shortMessage ?? e.message ?? 'Transaction failed');
+    }
+  }
+
+  async function handleForceSettle() {
+    setTxError('');
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACT_ADDRESS,
+        abi: REFLEX_ABI,
+        functionName: 'forceSettle',
         args: [matchId],
       });
       await waitForTransactionReceipt(wagmiConfig, { hash });
@@ -236,14 +224,13 @@ export default function MatchPage() {
     hasTappedRef.current = true;
 
     const clientTimestampMs = BigInt(Date.now());
-    const reactionMs = Number(clientTimestampMs - displayedGoTimestampMs);
-
+    const reactionMs = Number(clientTimestampMs - displayedGoMs);
     setHasTapped(true);
     setMyReactionMs(reactionMs);
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
     if (navigator.vibrate) navigator.vibrate(60);
 
+    setTxError('');
     try {
       await writeContractAsync({
         address: CONTRACT_ADDRESS,
@@ -253,9 +240,9 @@ export default function MatchPage() {
       });
     } catch (err: unknown) {
       const e = err as { shortMessage?: string; message?: string };
-      setTxError(e.shortMessage ?? e.message ?? 'Tap submission failed');
+      setTxError(e.shortMessage ?? e.message ?? 'Tap failed');
     }
-  }, [effectiveState, displayedGoTimestampMs, matchId, writeContractAsync]);
+  }, [effectiveState, displayedGoMs, matchId, writeContractAsync]);
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (!match) {
@@ -269,30 +256,23 @@ export default function MatchPage() {
     );
   }
 
-  // Not found
-  if (match.host === ZERO_ADDR) {
+  if (!isValidMatch(match)) {
     return (
       <div className="flex min-h-[100dvh] flex-col bg-bg">
         <Header />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
           <AlertCircle size={40} className="text-text-muted" />
           <p className="text-lg font-bold text-text-primary">Match not found</p>
-          <Link href="/" className="text-sm text-primary hover:underline">
-            Back to lobby
-          </Link>
+          <Link href="/" className="text-sm text-primary hover:underline">Back to lobby</Link>
         </div>
       </div>
     );
   }
 
-  // ── Active Phase — full-screen green ─────────────────────────────────────
+  // ── Active — fullscreen green ─────────────────────────────────────────────
   if (effectiveState === MatchState.Active) {
     return (
-      <div
-        className="fixed inset-0 flex flex-col"
-        style={{ backgroundColor: '#00e676', touchAction: 'none' }}
-      >
-        {/* Header strip */}
+      <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#00e676', touchAction: 'none' }}>
         <div className="flex items-center justify-between px-5 pt-safe pt-4 pb-2">
           <span className="font-mono text-sm font-bold text-black/50">
             Match #{matchId.toString()}
@@ -300,7 +280,7 @@ export default function MatchPage() {
           {!hasTapped && (
             <div className="flex items-center gap-1.5 font-mono text-sm font-black text-black">
               <Clock size={14} />
-              <span>{elapsedMs}ms</span>
+              <span>{elapsedMs.toLocaleString()}ms</span>
             </div>
           )}
         </div>
@@ -312,6 +292,31 @@ export default function MatchPage() {
           disabled={hasTapped}
         />
 
+        {/* Host controls during active */}
+        {isHost && (
+          <div className="px-5 pb-safe pb-6 flex gap-3">
+            <button
+              onClick={handleEndMatch}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-black/20 py-3 text-sm font-bold text-black/70 active:scale-95"
+            >
+              <StopCircle size={15} />
+              End match
+            </button>
+          </div>
+        )}
+
+        {forceSettleReady && !isHost && (
+          <div className="px-5 pb-safe pb-6">
+            <button
+              onClick={handleForceSettle}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-black/20 py-3 text-sm font-bold text-black/70 active:scale-95"
+            >
+              <TimerReset size={15} />
+              Force settle (5 min passed)
+            </button>
+          </div>
+        )}
+
         {txError && (
           <p className="px-6 pb-6 text-center text-sm text-black/70">{txError}</p>
         )}
@@ -319,11 +324,8 @@ export default function MatchPage() {
     );
   }
 
-  // ── Finished Phase ───────────────────────────────────────────────────────
-  if (effectiveState === MatchState.Finished && (finishedData ?? match.winner !== ZERO_ADDR)) {
-    const winner = finishedData?.winner ?? match.winner;
-    const pot = finishedData?.pot ?? match.stakePerPlayer * BigInt(match.players.length);
-
+  // ── Finished ──────────────────────────────────────────────────────────────
+  if (effectiveState === MatchState.Finished && finishedData) {
     return (
       <div className="flex min-h-[100dvh] flex-col bg-bg">
         <Header />
@@ -331,11 +333,9 @@ export default function MatchPage() {
           <h1 className="text-xl font-black text-text-primary">Results</h1>
 
           <Leaderboard
-            results={tapResults.length > 0 ? tapResults : []}
-            players={match.players}
-            winner={winner}
+            finished={finishedData}
+            tapResults={tapResults}
             currentUser={address}
-            pot={pot}
           />
 
           <div className="mt-2 flex gap-3">
@@ -348,7 +348,7 @@ export default function MatchPage() {
             </button>
             <Link
               href="/"
-              className="flex flex-1 items-center justify-center rounded-xl border border-white/[0.08] bg-surface py-3.5 text-sm font-medium text-text-secondary transition-colors hover:text-text-primary"
+              className="flex flex-1 items-center justify-center rounded-xl border border-white/[0.08] bg-surface py-3.5 text-sm font-medium text-text-secondary"
             >
               Lobby
             </Link>
@@ -358,20 +358,14 @@ export default function MatchPage() {
     );
   }
 
-  // ── Lobby Phase (Open + Locked) ──────────────────────────────────────────
-  const canJoinFull =
-    authenticated && !isPlayer && match.state === MatchState.Open;
-
-  const isDeadlinePassed =
-    match.state === MatchState.Active &&
-    Number(match.settleDeadlineMs) > 0 &&
-    Date.now() > Number(match.settleDeadlineMs);
-
+  // ── Lobby (Open / Locked) ─────────────────────────────────────────────────
+  const pot = match.stakePerPlayer * BigInt(match.playerCount);
+  const canJoin = isConnected && !isPlayer && match.state === MatchState.Open;
   const hostCanStart =
     isHost &&
     (match.state === MatchState.Open || match.state === MatchState.Locked) &&
-    match.players.length >= 2 &&
-    hostStartState === 'idle';
+    match.playerCount >= 2 &&
+    hostFlow === 'idle';
 
   const statusLabel: Record<MatchState, string> = {
     [MatchState.Open]: 'Open',
@@ -379,7 +373,6 @@ export default function MatchPage() {
     [MatchState.Active]: 'Live',
     [MatchState.Finished]: 'Finished',
   };
-
   const statusColor: Record<MatchState, string> = {
     [MatchState.Open]: 'bg-emerald-500/20 text-emerald-400',
     [MatchState.Locked]: 'bg-yellow-500/20 text-yellow-400',
@@ -390,13 +383,8 @@ export default function MatchPage() {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-bg">
       <Header />
-
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 px-4 py-6">
-        {/* Back */}
-        <Link
-          href="/"
-          className="flex w-fit items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text-secondary"
-        >
+        <Link href="/" className="flex w-fit items-center gap-1.5 text-sm text-text-muted hover:text-text-secondary">
           <ArrowLeft size={16} />
           Lobby
         </Link>
@@ -408,25 +396,19 @@ export default function MatchPage() {
               Match #{matchId.toString()}
             </p>
             <div className="mt-1 flex items-center gap-3">
-              <span
-                className={clsx(
-                  'rounded-full px-2.5 py-0.5 text-xs font-bold',
-                  statusColor[effectiveState]
-                )}
-              >
+              <span className={clsx('rounded-full px-2.5 py-0.5 text-xs font-bold', statusColor[effectiveState])}>
                 {statusLabel[effectiveState]}
               </span>
               <span className="flex items-center gap-1 text-sm font-medium text-text-secondary">
                 <Users size={13} />
-                {match.players.length}/{match.maxPlayers}
+                {match.playerCount} joined
               </span>
             </div>
           </div>
-
           <div className="text-right">
             <p className="text-xs text-text-muted">Pot</p>
             <p className="text-xl font-black text-text-primary">
-              {formatEther(match.stakePerPlayer * BigInt(match.players.length))}
+              {formatEther(pot)}
               <span className="ml-1 text-sm font-semibold text-text-secondary">MON</span>
             </p>
           </div>
@@ -440,20 +422,17 @@ export default function MatchPage() {
             <span className="font-semibold text-text-primary">
               {formatEther(match.stakePerPlayer)} MON
             </span>{' '}
-            per player · Winner takes all
+            per player · Auto-scale winners
           </span>
         </div>
 
-        {/* GET READY state for Locked */}
+        {/* GET READY banner */}
         {effectiveState === MatchState.Locked && (
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 py-6">
             <div className="animate-breathe">
               <p className="text-2xl font-black text-yellow-400">GET READY</p>
             </div>
-            {isHost && hostStartState === 'countdown' && (
-              <p className="font-mono text-4xl font-black text-yellow-300">{countdownSec}</p>
-            )}
-            {isHost && hostStartState === 'starting' && (
+            {isHost && hostFlow === 'starting' && (
               <p className="flex items-center gap-2 text-sm text-yellow-400/70">
                 <Spinner className="h-4 w-4" />
                 Starting…
@@ -465,19 +444,19 @@ export default function MatchPage() {
           </div>
         )}
 
-        {/* QR share — only when open */}
+        {/* QR share */}
         {match.state === MatchState.Open && <QRShare matchId={matchId.toString()} />}
 
-        {/* Player list */}
+        {/* Players */}
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">
-            Players
+            Players ({match.playerCount})
           </p>
           <PlayerList
-            players={match.players}
-            maxPlayers={match.maxPlayers}
+            playerCount={match.playerCount}
             host={match.host}
             currentUser={address}
+            tappedCount={match.tappedCount}
           />
         </div>
 
@@ -490,8 +469,16 @@ export default function MatchPage() {
 
         {/* Actions */}
         <div className="flex flex-col gap-3 pb-6">
-          {/* Non-player: Join */}
-          {canJoinFull && match.players.length < match.maxPlayers && (
+          {!isConnected && match.state === MatchState.Open && (
+            <button
+              onClick={() => connect({ connector: injected() })}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-base font-bold text-white transition-all hover:bg-primary-dim active:scale-[0.98]"
+            >
+              Connect to join
+            </button>
+          )}
+
+          {canJoin && (
             <button
               onClick={handleJoin}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-base font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary-dim active:scale-[0.98]"
@@ -500,48 +487,21 @@ export default function MatchPage() {
             </button>
           )}
 
-          {/* Not connected */}
-          {!authenticated && match.state === MatchState.Open && (
-            <button
-              onClick={login}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-base font-bold text-white transition-all hover:bg-primary-dim active:scale-[0.98]"
-            >
-              Connect to join
-            </button>
-          )}
-
-          {/* Host: Start game */}
           {hostCanStart && (
             <button
               onClick={handleStartGame}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-tap py-4 text-base font-bold text-black transition-all hover:bg-tap-dim active:scale-[0.98]"
             >
               <Play size={18} strokeWidth={2.5} />
-              {match.players.length < 2
-                ? `Need ${2 - match.players.length} more player`
-                : 'Start Game'}
+              {match.playerCount < 2 ? `Need ${2 - match.playerCount} more player` : 'Start Game'}
             </button>
           )}
 
-          {/* Host: loading states */}
-          {isHost && hostStartState !== 'idle' && (
+          {isHost && hostFlow !== 'idle' && (
             <div className="flex items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-surface py-4 text-sm text-text-secondary">
               <Spinner className="h-4 w-4" />
-              {hostStartState === 'locking' && 'Locking match…'}
-              {hostStartState === 'countdown' && `Starting in ${countdownSec}…`}
-              {hostStartState === 'starting' && 'Calling start…'}
+              {hostFlow === 'locking' ? 'Locking match…' : 'Starting game…'}
             </div>
-          )}
-
-          {/* Settle if deadline passed */}
-          {isDeadlinePassed && match.winner !== ZERO_ADDR && (
-            <button
-              onClick={handleSettle}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 py-3.5 text-sm font-bold text-yellow-400 transition-colors hover:bg-yellow-500/20"
-            >
-              <Lock size={14} />
-              Settle match
-            </button>
           )}
         </div>
       </main>

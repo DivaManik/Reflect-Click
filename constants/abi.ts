@@ -5,9 +5,8 @@ export const REFLEX_ABI = [
     name: 'MatchCreated',
     inputs: [
       { name: 'matchId', type: 'uint256', indexed: true },
-      { name: 'host', type: 'address', indexed: false },
-      { name: 'stake', type: 'uint256', indexed: false },
-      { name: 'maxPlayers', type: 'uint8', indexed: false },
+      { name: 'host', type: 'address', indexed: true },
+      { name: 'stakePerPlayer', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -15,8 +14,16 @@ export const REFLEX_ABI = [
     name: 'MatchJoined',
     inputs: [
       { name: 'matchId', type: 'uint256', indexed: true },
-      { name: 'player', type: 'address', indexed: false },
-      { name: 'currentCount', type: 'uint8', indexed: false },
+      { name: 'player', type: 'address', indexed: true },
+      { name: 'playerCount', type: 'uint32', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'MatchLocked',
+    inputs: [
+      { name: 'matchId', type: 'uint256', indexed: true },
+      { name: 'playerCount', type: 'uint32', indexed: false },
     ],
   },
   {
@@ -24,8 +31,9 @@ export const REFLEX_ABI = [
     name: 'MatchStarted',
     inputs: [
       { name: 'matchId', type: 'uint256', indexed: true },
+      { name: 'startedAt', type: 'uint256', indexed: false },
       { name: 'goTimestampMs', type: 'uint256', indexed: false },
-      { name: 'totalPlayers', type: 'uint8', indexed: false },
+      { name: 'countdownMs', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -33,7 +41,7 @@ export const REFLEX_ABI = [
     name: 'TapSubmitted',
     inputs: [
       { name: 'matchId', type: 'uint256', indexed: true },
-      { name: 'player', type: 'address', indexed: false },
+      { name: 'player', type: 'address', indexed: true },
       { name: 'reactionMs', type: 'uint256', indexed: false },
     ],
   },
@@ -42,9 +50,18 @@ export const REFLEX_ABI = [
     name: 'MatchFinished',
     inputs: [
       { name: 'matchId', type: 'uint256', indexed: true },
-      { name: 'winner', type: 'address', indexed: false },
-      { name: 'reactionMs', type: 'uint256', indexed: false },
-      { name: 'pot', type: 'uint256', indexed: false },
+      { name: 'topPlayers', type: 'address[3]', indexed: false },
+      { name: 'topReactionMs', type: 'uint256[3]', indexed: false },
+      { name: 'prizes', type: 'uint256[3]', indexed: false },
+      { name: 'winnersCount', type: 'uint8', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'MatchForceSettled',
+    inputs: [
+      { name: 'matchId', type: 'uint256', indexed: true },
     ],
   },
   // ── Write Functions ──────────────────────────────────────────────────────
@@ -52,8 +69,8 @@ export const REFLEX_ABI = [
     type: 'function',
     name: 'createMatch',
     stateMutability: 'payable',
-    inputs: [{ name: 'maxPlayers', type: 'uint8' }],
-    outputs: [{ name: '', type: 'uint256' }],
+    inputs: [],
+    outputs: [{ name: 'matchId', type: 'uint256' }],
   },
   {
     type: 'function',
@@ -88,7 +105,14 @@ export const REFLEX_ABI = [
   },
   {
     type: 'function',
-    name: 'settleMatch',
+    name: 'endMatch',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'matchId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'forceSettle',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'matchId', type: 'uint256' }],
     outputs: [],
@@ -96,49 +120,57 @@ export const REFLEX_ABI = [
   // ── Read Functions ───────────────────────────────────────────────────────
   {
     type: 'function',
-    name: 'matches',
+    name: 'getMatch',
     stateMutability: 'view',
-    inputs: [{ name: '', type: 'uint256' }],
-    // Returns struct fields excluding the dynamic `players[]` array
+    inputs: [{ name: 'matchId', type: 'uint256' }],
     outputs: [
-      { name: 'host', type: 'address' },
-      { name: 'stakePerPlayer', type: 'uint256' },
-      { name: 'maxPlayers', type: 'uint8' },
-      { name: 'goTimestampMs', type: 'uint256' },
-      { name: 'settleDeadlineMs', type: 'uint256' },
-      { name: 'winner', type: 'address' },
-      { name: 'winnerReactionMs', type: 'uint256' },
-      { name: 'tappedCount', type: 'uint8' },
-      { name: 'state', type: 'uint8' },
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'host', type: 'address' },
+          { name: 'state', type: 'uint8' },
+          { name: 'playerCount', type: 'uint32' },
+          { name: 'tappedCount', type: 'uint32' },
+          { name: 'stakePerPlayer', type: 'uint256' },
+          { name: 'startedAt', type: 'uint256' },
+          { name: 'goTimestampMs', type: 'uint256' },
+          { name: 'topPlayers', type: 'address[3]' },
+          { name: 'topReactionMs', type: 'uint256[3]' },
+        ],
+      },
     ],
   },
   {
     type: 'function',
-    name: 'getMatchPlayers',
+    name: 'isPlayer',
     stateMutability: 'view',
-    inputs: [{ name: 'matchId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'address[]' }],
+    inputs: [
+      { name: 'matchId', type: 'uint256' },
+      { name: 'player', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
   },
   {
     type: 'function',
     name: 'hasTapped',
     stateMutability: 'view',
     inputs: [
-      { name: '', type: 'uint256' },
-      { name: '', type: 'address' },
+      { name: 'matchId', type: 'uint256' },
+      { name: 'player', type: 'address' },
     ],
     outputs: [{ name: '', type: 'bool' }],
   },
   {
     type: 'function',
-    name: 'bestReactionMs',
+    name: 'matchCounter',
     stateMutability: 'view',
-    inputs: [{ name: '', type: 'address' }],
+    inputs: [],
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
-    name: 'matchCounter',
+    name: 'accumulatedFees',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint256' }],

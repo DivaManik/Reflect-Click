@@ -7,22 +7,25 @@ export enum MatchState {
 
 export interface MatchData {
   host: `0x${string}`;
-  stakePerPlayer: bigint;
-  maxPlayers: number;
-  goTimestampMs: bigint;
-  settleDeadlineMs: bigint;
-  winner: `0x${string}`;
-  winnerReactionMs: bigint;
-  tappedCount: number;
   state: MatchState;
-}
-
-export interface MatchFull extends MatchData {
-  matchId: bigint;
-  players: `0x${string}`[];
+  playerCount: number;
+  tappedCount: number;
+  stakePerPlayer: bigint;
+  startedAt: bigint;
+  goTimestampMs: bigint;
+  topPlayers: readonly [`0x${string}`, `0x${string}`, `0x${string}`];
+  topReactionMs: readonly [bigint, bigint, bigint];
 }
 
 export interface TapResult {
   player: `0x${string}`;
   reactionMs: bigint;
+}
+
+export interface FinishedData {
+  topPlayers: readonly [`0x${string}`, `0x${string}`, `0x${string}`];
+  topReactionMs: readonly [bigint, bigint, bigint];
+  prizes: readonly [bigint, bigint, bigint];
+  winnersCount: number;
+  fee: bigint;
 }
