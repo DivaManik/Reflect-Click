@@ -16,3 +16,7 @@ contracts/cache/
 
 # Foundry
 contracts/broadcast/*/31337/
+
+# Reflex MVP docs
+Reflex-MVP-Monad-Blitz.pdf
+Reflex-MVP-Monad-Blitz.txt
