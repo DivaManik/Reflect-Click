@@ -1,19 +1,19 @@
 'use client';
 
-import { usePrivy } from '@privy-io/react-auth';
-import { useAccount } from 'wagmi';
+import { useAccount, useConnect, useDisconnect } from 'wagmi';
+import { injected } from 'wagmi/connectors';
 import { Zap, LogOut, User } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
-import clsx from 'clsx';
 
 function shortAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
 export function Header() {
-  const { ready, authenticated, login, logout } = usePrivy();
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { connect, isPending } = useConnect();
+  const { disconnect } = useDisconnect();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -26,9 +26,7 @@ export function Header() {
           <span className="text-base font-bold tracking-tight text-text-primary">Reflex</span>
         </Link>
 
-        {!ready ? (
-          <div className="h-8 w-28 animate-pulse rounded-lg bg-surface" />
-        ) : authenticated && address ? (
+        {isConnected && address ? (
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
@@ -41,7 +39,7 @@ export function Header() {
             {menuOpen && (
               <div className="absolute right-0 top-full mt-2 min-w-[140px] rounded-xl border border-white/[0.08] bg-raised p-1 shadow-xl">
                 <button
-                  onClick={() => { logout(); setMenuOpen(false); }}
+                  onClick={() => { disconnect(); setMenuOpen(false); }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-text-primary"
                 >
                   <LogOut size={14} />
@@ -52,10 +50,11 @@ export function Header() {
           </div>
         ) : (
           <button
-            onClick={login}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dim active:scale-95"
+            onClick={() => connect({ connector: injected() })}
+            disabled={isPending}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dim active:scale-95 disabled:opacity-60"
           >
-            Connect
+            {isPending ? 'Connecting…' : 'Connect Wallet'}
           </button>
         )}
       </div>

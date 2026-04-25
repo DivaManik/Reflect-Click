@@ -1,6 +1,7 @@
 'use client';
 
-import { usePrivy } from '@privy-io/react-auth';
+import { useAccount, useConnect } from 'wagmi';
+import { injected } from 'wagmi/connectors';
 import { Header } from '@/components/Header';
 import { useMatchCounter } from '@/hooks/useMatch';
 import { Plus, ArrowRight, Zap } from 'lucide-react';
@@ -9,7 +10,8 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 export default function HomePage() {
-  const { authenticated, login } = usePrivy();
+  const { isConnected } = useAccount();
+  const { connect } = useConnect();
   const counter = useMatchCounter();
   const router = useRouter();
   const [joinId, setJoinId] = useState('');
@@ -46,7 +48,7 @@ export default function HomePage() {
         )}
 
         {/* Primary CTA */}
-        {authenticated ? (
+        {isConnected ? (
           <Link
             href="/create"
             className="flex items-center justify-center gap-3 rounded-2xl bg-primary px-6 py-4 text-lg font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary-dim active:scale-[0.98]"
@@ -56,10 +58,10 @@ export default function HomePage() {
           </Link>
         ) : (
           <button
-            onClick={login}
+            onClick={() => connect({ connector: injected() })}
             className="flex items-center justify-center gap-3 rounded-2xl bg-primary px-6 py-4 text-lg font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary-dim active:scale-[0.98]"
           >
-            Connect to Play
+            Connect Wallet to Play
           </button>
         )}
 
@@ -96,9 +98,9 @@ export default function HomePage() {
           <div className="space-y-4">
             {[
               ['Stake MON', 'Host creates a match and sets the buy-in amount'],
-              ['Wait for GO', 'Random countdown 1–5 sec — no one knows when'],
-              ['Tap fastest', 'First valid tap after GO wins the entire pot'],
-              ['Instant payout', 'Winner gets MON in under 1 second on Monad'],
+              ['3s Countdown', 'On-chain countdown — GO signal from blockchain'],
+              ['Tap fastest', 'Tap immediately after GO — fastest wins the pot'],
+              ['Instant payout', 'MON paid out on-chain in under 1 second on Monad'],
             ].map(([title, desc]) => (
               <div key={title} className="flex gap-3">
                 <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary/60" />

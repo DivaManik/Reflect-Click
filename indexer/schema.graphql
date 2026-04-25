@@ -1,0 +1,56 @@
+enum MatchState {
+  Open
+  Locked
+  Active
+  Finished
+  ForceSettled
+}
+
+type Match {
+  id: ID!
+  matchId: BigInt!
+  host: Player!
+  stakePerPlayer: BigInt!
+  playerCount: Int!
+  tappedCount: Int!
+  state: MatchState!
+  prizePool: BigInt!
+  goTimestampMs: BigInt
+  startedAt: BigInt
+  winner1: Player
+  winner1ReactionMs: BigInt
+  winner1Prize: BigInt
+  winner2: Player
+  winner2ReactionMs: BigInt
+  winner2Prize: BigInt
+  winner3: Player
+  winner3ReactionMs: BigInt
+  winner3Prize: BigInt
+  winnersCount: Int
+  platformFee: BigInt
+  finishedAt: BigInt
+  forceSettledAt: BigInt
+  createdAt: BigInt!
+  taps: [Tap!]! @derivedFrom(field: "match")
+}
+
+type Tap {
+  id: ID!
+  match: Match!
+  player: Player!
+  reactionMs: BigInt!
+  timestamp: BigInt!
+  rank: Int
+  prize: BigInt
+}
+
+type Player {
+  id: ID!
+  totalMatches: Int!
+  totalWins: Int!
+  totalTaps: Int!
+  bestReactionMs: BigInt
+  totalEarnedWei: BigInt!
+  hostedMatches: [Match!]! @derivedFrom(field: "host")
+  taps: [Tap!]! @derivedFrom(field: "player")
+}

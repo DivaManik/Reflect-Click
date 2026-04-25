@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
-import { useWriteContract } from 'wagmi';
+import { useAccount, useConnect, useWriteContract } from 'wagmi';
+import { injected } from 'wagmi/connectors';
 import { parseEventLogs, parseEther } from 'viem';
 import { waitForTransactionReceipt } from 'wagmi/actions';
 import { REFLEX_ABI } from '@/constants/abi';
 import { Header } from '@/components/Header';
-import { ArrowLeft, Users, Coins, Minus, Plus } from 'lucide-react';
+import { ArrowLeft, Coins, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { wagmiConfig } from '@/lib/wagmiConfig';
@@ -31,22 +31,18 @@ function Spinner() {
 }
 
 export default function CreatePage() {
-  const { authenticated, login } = usePrivy();
+  const { isConnected } = useAccount();
+  const { connect } = useConnect();
   const router = useRouter();
   const { writeContractAsync } = useWriteContract();
 
   const [stakeOption, setStakeOption] = useState('0.01');
-  const [maxPlayers, setMaxPlayers] = useState(4);
   const [isPending, setIsPending] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const totalPot = Number(stakeOption) * maxPlayers;
-  const totalPotDisplay =
-    totalPot % 1 === 0 ? totalPot.toFixed(0) : totalPot.toFixed(3);
-
   async function handleCreate() {
-    if (!authenticated) {
-      login();
+    if (!isConnected) {
+      connect({ connector: injected() });
       return;
     }
 
@@ -58,7 +54,7 @@ export default function CreatePage() {
         address: CONTRACT_ADDRESS,
         abi: REFLEX_ABI,
         functionName: 'createMatch',
-        args: [maxPlayers],
+        args: [],
         value: parseEther(stakeOption),
       });
 
@@ -122,54 +118,35 @@ export default function CreatePage() {
           </div>
         </div>
 
-        {/* Max players */}
-        <div className="space-y-3">
-          <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted">
-            <Users size={13} />
-            Max players
-          </label>
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-surface px-4 py-3">
-            <button
-              onClick={() => setMaxPlayers((v) => Math.max(2, v - 1))}
-              disabled={maxPlayers <= 2}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] text-text-secondary transition-colors hover:border-white/[0.16] hover:text-text-primary disabled:opacity-30"
-            >
-              <Minus size={16} />
-            </button>
-
-            <div className="text-center">
-              <span className="text-4xl font-black text-text-primary">{maxPlayers}</span>
-              <p className="text-xs text-text-muted">players max</p>
-            </div>
-
-            <button
-              onClick={() => setMaxPlayers((v) => Math.min(20, v + 1))}
-              disabled={maxPlayers >= 20}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] text-text-secondary transition-colors hover:border-white/[0.16] hover:text-text-primary disabled:opacity-30"
-            >
-              <Plus size={16} />
-            </button>
+        {/* Auto-scale info */}
+        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-5 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary/60">
+            Auto-scale prizes
+          </p>
+          <div className="space-y-2 text-sm">
+            {[
+              ['1–4 tappers', '1 winner → 100%'],
+              ['5–10 tappers', '2 winners → 65% / 35%'],
+              ['11+ tappers', '3 winners → 60% / 30% / 10%'],
+            ].map(([players, prize]) => (
+              <div key={players} className="flex justify-between">
+                <span className="text-text-muted">{players}</span>
+                <span className="font-semibold text-text-primary">{prize}</span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-white/[0.06] pt-3 flex justify-between text-xs text-text-muted">
+            <span>Platform fee</span>
+            <span>2% of pot</span>
           </div>
         </div>
 
-        {/* Prize preview */}
-        <div className="rounded-2xl border border-primary/25 bg-primary/10 p-5">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-primary/60">
-            Match preview
-          </p>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-sm text-text-secondary">Winner takes</p>
-              <p className="text-4xl font-black text-text-primary">
-                {totalPotDisplay}
-                <span className="ml-1.5 text-xl font-bold text-text-secondary">MON</span>
-              </p>
-            </div>
-            <div className="text-right text-sm text-text-muted">
-              <p>{maxPlayers} players</p>
-              <p>{stakeOption} each</p>
-            </div>
-          </div>
+        {/* Unlimited players note */}
+        <div className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-surface px-4 py-3">
+          <Zap size={14} className="text-primary" />
+          <span className="text-sm text-text-muted">
+            No player cap — invite as many friends as you want.
+          </span>
         </div>
 
         {/* Error */}
@@ -191,12 +168,12 @@ export default function CreatePage() {
               Creating match…
             </>
           ) : (
-            'Create Match'
+            `Create Match · ${stakeOption} MON`
           )}
         </button>
 
         <p className="text-center text-xs text-text-muted">
-          You stake {stakeOption} MON now · Winner-takes-all · Instant payout on Monad
+          You stake {stakeOption} MON · Others pay the same to join · Instant payout on Monad
         </p>
       </main>
     </div>

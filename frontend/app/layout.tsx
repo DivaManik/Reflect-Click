@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from '@/lib/providers';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Reflex — Reaction-Time Wagering on Monad',
   description: 'Fastest tap wins the pot. Multi-player reaction-time game on Monad.',

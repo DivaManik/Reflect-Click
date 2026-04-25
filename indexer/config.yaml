@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: reflex-indexer
+description: Real-time indexer for Reflex reaction-time game on Monad testnet
+schema: ./schema.graphql
+preload_handlers: true
+
+contracts:
+  - name: Reflex
+    handler: ./src/EventHandlers.ts
+    events:
+      - event: "MatchCreated(uint256 indexed matchId, address indexed host, uint256 stakePerPlayer)"
+      - event: "MatchJoined(uint256 indexed matchId, address indexed player, uint32 currentCount)"
+      - event: "MatchLocked(uint256 indexed matchId, uint32 totalPlayers)"
+      - event: "MatchStarted(uint256 indexed matchId, uint256 startedAt, uint256 goTimestampMs, uint256 countdownMs)"
+      - event: "TapSubmitted(uint256 indexed matchId, address indexed player, uint256 reactionMs)"
+      - event: "MatchFinished(uint256 indexed matchId, address[3] topPlayers, uint256[3] topReactionMs, uint256[3] prizes, uint8 winnersCount, uint256 platformFee)"
+      - event: "MatchForceSettled(uint256 indexed matchId)"
+
+networks:
+  - id: 10143
+    start_block: 0
+    contracts:
+      - name: Reflex
+        address: ${REFLEX_ADDRESS:-0xfaf82e200b63bca0c6225684f53e90c9c6445ee8}

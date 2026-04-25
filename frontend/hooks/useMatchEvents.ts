@@ -2,7 +2,7 @@
 
 import { useWatchContractEvent } from 'wagmi';
 import { REFLEX_ABI } from '@/constants/abi';
-import type { TapResult } from '@/types';
+import type { FinishedData, TapResult } from '@/types';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
 
@@ -10,8 +10,9 @@ interface UseMatchEventsParams {
   matchId: bigint;
   onMatchStarted?: (goTimestampMs: bigint) => void;
   onTapSubmitted?: (result: TapResult) => void;
-  onMatchFinished?: (winner: `0x${string}`, reactionMs: bigint, pot: bigint) => void;
+  onMatchFinished?: (data: FinishedData) => void;
   onMatchJoined?: () => void;
+  onMatchLocked?: () => void;
 }
 
 export function useMatchEvents({
@@ -20,6 +21,7 @@ export function useMatchEvents({
   onTapSubmitted,
   onMatchFinished,
   onMatchJoined,
+  onMatchLocked,
 }: UseMatchEventsParams) {
   useWatchContractEvent({
     address: CONTRACT_ADDRESS,
@@ -29,7 +31,7 @@ export function useMatchEvents({
     pollingInterval: 200,
     onLogs(logs) {
       for (const log of logs) {
-        const args = log.args as { matchId: bigint; goTimestampMs: bigint; totalPlayers: number };
+        const args = log.args as { goTimestampMs: bigint };
         onMatchStarted?.(args.goTimestampMs);
       }
     },
@@ -43,7 +45,7 @@ export function useMatchEvents({
     pollingInterval: 200,
     onLogs(logs) {
       for (const log of logs) {
-        const args = log.args as { matchId: bigint; player: `0x${string}`; reactionMs: bigint };
+        const args = log.args as { player: `0x${string}`; reactionMs: bigint };
         onTapSubmitted?.({ player: args.player, reactionMs: args.reactionMs });
       }
     },
@@ -58,12 +60,19 @@ export function useMatchEvents({
     onLogs(logs) {
       for (const log of logs) {
         const args = log.args as {
-          matchId: bigint;
-          winner: `0x${string}`;
-          reactionMs: bigint;
-          pot: bigint;
+          topPlayers: readonly [`0x${string}`, `0x${string}`, `0x${string}`];
+          topReactionMs: readonly [bigint, bigint, bigint];
+          prizes: readonly [bigint, bigint, bigint];
+          winnersCount: number;
+          fee: bigint;
         };
-        onMatchFinished?.(args.winner, args.reactionMs, args.pot);
+        onMatchFinished?.({
+          topPlayers: args.topPlayers,
+          topReactionMs: args.topReactionMs,
+          prizes: args.prizes,
+          winnersCount: args.winnersCount,
+          fee: args.fee,
+        });
       }
     },
   });
@@ -76,6 +85,17 @@ export function useMatchEvents({
     pollingInterval: 500,
     onLogs() {
       onMatchJoined?.();
+    },
+  });
+
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESS,
+    abi: REFLEX_ABI,
+    eventName: 'MatchLocked',
+    args: { matchId },
+    pollingInterval: 500,
+    onLogs() {
+      onMatchLocked?.();
     },
   });
 }
